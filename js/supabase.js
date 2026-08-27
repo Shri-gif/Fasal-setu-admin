@@ -4,8 +4,8 @@ import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js
   Put the SAME Supabase project URL and publishable/anon key used by
   your Farmer + Customer websites here.
 */
-export const SUPABASE_URL = "YOUR_SUPABASE_URL";
-export const SUPABASE_KEY = "YOUR_SUPABASE_PUBLISHABLE_OR_ANON_KEY";
+export const SUPABASE_URL = "https://iyurbpfsvqzmdyaqinqi.supabase.co";
+export const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml5dXJicGZzdnF6bWR5YXFpbnFpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODczMjkyODUsImV4cCI6MjEwMjkwNTI4NX0.QiHk-cjLDETbK385RqW3R40A3ePpTn1B0XgN4FOJs2Q";
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
