@@ -1,1 +1,720 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
+    <title>Fasal Setu Admin</title>
+
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/responsive.css">
+</head>
+
+<body>
+
+    <!-- ==============================
+         LOGIN SCREEN
+    =============================== -->
+
+    <section id="loginScreen" class="login-screen">
+
+        <div class="login-card">
+
+            <div class="login-logo">
+                🌱
+            </div>
+
+            <h1>Fasal Setu</h1>
+
+            <p class="login-subtitle">
+                Admin Panel
+            </p>
+
+            <div id="loginMessage" class="message"></div>
+
+            <form id="loginForm">
+
+                <div class="form-group">
+
+                    <label for="email">
+                        Admin Email
+                    </label>
+
+                    <input
+                        type="email"
+                        id="email"
+                        placeholder="Enter admin email"
+                        autocomplete="email"
+                        required
+                    >
+
+                </div>
+
+                <div class="form-group">
+
+                    <label for="password">
+                        Password
+                    </label>
+
+                    <input
+                        type="password"
+                        id="password"
+                        placeholder="Enter password"
+                        autocomplete="current-password"
+                        required
+                    >
+
+                </div>
+
+                <button
+                    type="submit"
+                    id="loginBtn"
+                    class="primary-btn login-btn"
+                >
+                    Login to Admin
+                </button>
+
+            </form>
+
+            <p class="login-note">
+                Admin access is restricted.
+            </p>
+
+        </div>
+
+    </section>
+
+
+    <!-- ==============================
+         ADMIN APPLICATION
+    =============================== -->
+
+    <div id="adminApp" class="admin-app hidden">
+
+        <!-- SIDEBAR -->
+
+        <aside class="sidebar">
+
+            <div class="sidebar-brand">
+
+                <div class="brand-icon">
+                    🌱
+                </div>
+
+                <div>
+                    <h2>Fasal Setu</h2>
+                    <span>Admin Panel</span>
+                </div>
+
+            </div>
+
+
+            <nav class="sidebar-nav">
+
+                <button
+                    class="nav-item active"
+                    data-page="dashboard"
+                    type="button"
+                >
+                    <span class="nav-icon">📊</span>
+                    <span>Dashboard</span>
+                </button>
+
+                <button
+                    class="nav-item"
+                    data-page="settings"
+                    type="button"
+                >
+                    <span class="nav-icon">⚙️</span>
+                    <span>Settings</span>
+                </button>
+
+            </nav>
+
+
+            <div class="sidebar-bottom">
+
+                <button
+                    id="logoutBtn"
+                    class="logout-btn"
+                    type="button"
+                >
+                    <span>↪</span>
+                    Logout
+                </button>
+
+            </div>
+
+        </aside>
+
+
+        <!-- MAIN AREA -->
+
+        <div class="main-area">
+
+            <!-- HEADER -->
+
+            <header class="top-header">
+
+                <div>
+
+                    <button
+                        id="mobileMenuBtn"
+                        class="mobile-menu-btn"
+                        type="button"
+                        aria-label="Open menu"
+                    >
+                        ☰
+                    </button>
+
+                    <div class="page-title-wrap">
+
+                        <h1 id="pageTitle">
+                            Dashboard
+                        </h1>
+
+                        <p id="pageSubtitle">
+                            Overview of your Fasal Setu platform
+                        </p>
+
+                    </div>
+
+                </div>
+
+
+                <div class="admin-user">
+
+                    <div class="admin-avatar">
+                        👨‍💼
+                    </div>
+
+                    <div class="admin-user-info">
+
+                        <strong>Admin</strong>
+
+                        <span id="adminEmail">
+                            —
+                        </span>
+
+                    </div>
+
+                </div>
+
+            </header>
+
+
+            <!-- CONTENT -->
+
+            <main class="content-area">
+
+
+                <!-- ==============================
+                     DASHBOARD
+                =============================== -->
+
+                <section
+                    id="dashboardPage"
+                    class="page-section"
+                >
+
+                    <div class="section-intro">
+
+                        <div>
+
+                            <h2>Dashboard</h2>
+
+                            <p>
+                                Live overview from Supabase
+                            </p>
+
+                        </div>
+
+                        <button
+                            id="refreshDashboardBtn"
+                            class="secondary-btn"
+                            type="button"
+                        >
+                            ↻ Refresh
+                        </button>
+
+                    </div>
+
+
+                    <!-- USER STATS -->
+
+                    <div class="stats-grid">
+
+
+                        <div class="stat-card">
+
+                            <div class="stat-icon farmer-icon">
+                                👨‍🌾
+                            </div>
+
+                            <div class="stat-content">
+
+                                <span>
+                                    Farmers Registered
+                                </span>
+
+                                <strong id="farmersCount">
+                                    0
+                                </strong>
+
+                            </div>
+
+                        </div>
+
+
+                        <div class="stat-card">
+
+                            <div class="stat-icon customer-icon">
+                                🛒
+                            </div>
+
+                            <div class="stat-content">
+
+                                <span>
+                                    Customers Registered
+                                </span>
+
+                                <strong id="customersCount">
+                                    0
+                                </strong>
+
+                            </div>
+
+                        </div>
+
+
+                        <div class="stat-card">
+
+                            <div class="stat-icon delivery-icon">
+                                🚴
+                            </div>
+
+                            <div class="stat-content">
+
+                                <span>
+                                    Delivery Boys
+                                </span>
+
+                                <strong id="deliveryBoysCount">
+                                    0
+                                </strong>
+
+                            </div>
+
+                        </div>
+
+
+                        <div class="stat-card">
+
+                            <div class="stat-icon product-icon">
+                                🥬
+                            </div>
+
+                            <div class="stat-content">
+
+                                <span>
+                                    Total Products
+                                </span>
+
+                                <strong id="productsCount">
+                                    0
+                                </strong>
+
+                            </div>
+
+                        </div>
+
+
+                    </div>
+
+
+                    <!-- EARNINGS -->
+
+                    <div class="dashboard-section">
+
+                        <div class="section-heading">
+
+                            <div>
+
+                                <h2>
+                                    Earnings
+                                </h2>
+
+                                <p>
+                                    Platform earnings overview
+                                </p>
+
+                            </div>
+
+                        </div>
+
+
+                        <div class="earnings-grid">
+
+
+                            <div class="earning-card">
+
+                                <span class="earning-period">
+                                    This Week
+                                </span>
+
+                                <strong id="weeklyEarnings">
+                                    ₹0
+                                </strong>
+
+                                <small>
+                                    Weekly earnings
+                                </small>
+
+                            </div>
+
+
+                            <div class="earning-card">
+
+                                <span class="earning-period">
+                                    This Month
+                                </span>
+
+                                <strong id="monthlyEarnings">
+                                    ₹0
+                                </strong>
+
+                                <small>
+                                    Monthly earnings
+                                </small>
+
+                            </div>
+
+
+                            <div class="earning-card">
+
+                                <span class="earning-period">
+                                    This Year
+                                </span>
+
+                                <strong id="yearlyEarnings">
+                                    ₹0
+                                </strong>
+
+                                <small>
+                                    Yearly earnings
+                                </small>
+
+                            </div>
+
+
+                        </div>
+
+                    </div>
+
+
+                    <!-- ORDER OVERVIEW -->
+
+                    <div class="dashboard-section">
+
+                        <div class="section-heading">
+
+                            <div>
+
+                                <h2>
+                                    Orders Overview
+                                </h2>
+
+                                <p>
+                                    Current platform orders
+                                </p>
+
+                            </div>
+
+                        </div>
+
+
+                        <div class="order-overview-grid">
+
+                            <div class="mini-card">
+
+                                <span>Total Orders</span>
+
+                                <strong id="totalOrders">
+                                    0
+                                </strong>
+
+                            </div>
+
+                            <div class="mini-card">
+
+                                <span>Pending Orders</span>
+
+                                <strong id="pendingOrders">
+                                    0
+                                </strong>
+
+                            </div>
+
+                            <div class="mini-card">
+
+                                <span>Completed Orders</span>
+
+                                <strong id="completedOrders">
+                                    0
+                                </strong>
+
+                            </div>
+
+                        </div>
+
+                    </div>
+
+
+                    <!-- LAST UPDATED -->
+
+                    <div class="last-updated">
+
+                        <span>
+                            ●
+                        </span>
+
+                        <span>
+                            Last updated:
+                        </span>
+
+                        <strong id="lastUpdated">
+                            —
+                        </strong>
+
+                    </div>
+
+                </section>
+
+
+                <!-- ==============================
+                     SETTINGS
+                =============================== -->
+
+                <section
+                    id="settingsPage"
+                    class="page-section hidden"
+                >
+
+                    <div class="section-intro">
+
+                        <div>
+
+                            <h2>
+                                Settings
+                            </h2>
+
+                            <p>
+                                Update basic platform information
+                            </p>
+
+                        </div>
+
+                    </div>
+
+
+                    <div class="settings-card">
+
+                        <form id="settingsForm">
+
+
+                            <div class="settings-group">
+
+                                <h3>
+                                    Platform Fee
+                                </h3>
+
+                                <p>
+                                    Set the fee charged on platform
+                                    transactions.
+                                </p>
+
+
+                                <div class="form-row">
+
+
+                                    <div class="form-group">
+
+                                        <label for="platformFee">
+                                            Platform Fee
+                                        </label>
+
+                                        <input
+                                            type="number"
+                                            id="platformFee"
+                                            min="0"
+                                            step="0.01"
+                                            placeholder="5"
+                                        >
+
+                                    </div>
+
+
+                                    <div class="form-group">
+
+                                        <label for="platformFeeType">
+                                            Fee Type
+                                        </label>
+
+                                        <select id="platformFeeType">
+
+                                            <option value="percentage">
+                                                Percentage (%)
+                                            </option>
+
+                                            <option value="fixed">
+                                                Fixed Amount (₹)
+                                            </option>
+
+                                        </select>
+
+                                    </div>
+
+                                </div>
+
+
+                                <div class="form-group">
+
+                                    <label for="feeEffectiveFrom">
+                                        Effective From
+                                    </label>
+
+                                    <input
+                                        type="datetime-local"
+                                        id="feeEffectiveFrom"
+                                    >
+
+                                </div>
+
+                            </div>
+
+
+                            <div class="settings-divider"></div>
+
+
+                            <div class="settings-group">
+
+                                <h3>
+                                    Website Information
+                                </h3>
+
+                                <p>
+                                    Basic information displayed across
+                                    the platform.
+                                </p>
+
+
+                                <div class="form-group">
+
+                                    <label for="siteName">
+                                        Website Name
+                                    </label>
+
+                                    <input
+                                        type="text"
+                                        id="siteName"
+                                        placeholder="Fasal Setu"
+                                    >
+
+                                </div>
+
+
+                                <div class="form-group">
+
+                                    <label for="siteTagline">
+                                        Tagline
+                                    </label>
+
+                                    <input
+                                        type="text"
+                                        id="siteTagline"
+                                        placeholder="Khet Se Seedha Ghar Tak"
+                                    >
+
+                                </div>
+
+
+                                <div class="form-group">
+
+                                    <label for="siteQuote">
+                                        Homepage Quote
+                                    </label>
+
+                                    <textarea
+                                        id="siteQuote"
+                                        rows="3"
+                                        placeholder="Har Kisan Ki Mehnat, Har Ghar Tak"
+                                    ></textarea>
+
+                                </div>
+
+                            </div>
+
+
+                            <div class="settings-actions">
+
+                                <button
+                                    type="submit"
+                                    id="saveSettingsBtn"
+                                    class="primary-btn"
+                                >
+                                    Save Changes
+                                </button>
+
+                            </div>
+
+                        </form>
+
+                    </div>
+
+                </section>
+
+            </main>
+
+        </div>
+
+    </div>
+
+
+    <!-- ==============================
+         TOAST
+    =============================== -->
+
+    <div
+        id="toast"
+        class="toast"
+        role="status"
+        aria-live="polite"
+    ></div>
+
+
+    <!-- ==============================
+         JAVASCRIPT
+    =============================== -->
+
+    <script
+        type="module"
+        src="js/auth.js"
+    ></script>
+
+    <script
+        type="module"
+        src="js/admin.js"
+    ></script>
+
+    <script
+        type="module"
+        src="js/dashboard.js"
+    ></script>
+
+    <script
+        type="module"
+        src="js/settings.js"
+    ></script>
+
+</body>
+</html>
