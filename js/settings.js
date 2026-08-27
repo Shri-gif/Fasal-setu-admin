@@ -1,183 +1,79 @@
-import { supabase } from "./supabase.js";
-import { requireAdmin } from "./auth.js";
+import { supabase, TABLES, showToast } from "./supabase.js";
 
-document.addEventListener("DOMContentLoaded", async () => {
-    const user = await requireAdmin();
-    if (!user) return;
+const form = document.getElementById("settingsForm");
+const saveBtn = document.getElementById("saveSettingsBtn");
 
-    await loadSettings();
-    setupSettingsForm();
-});
+const fields = {
+  fee: document.getElementById("platformFee"),
+  feeType: document.getElementById("platformFeeType"),
+  effective: document.getElementById("feeEffectiveFrom"),
+  name: document.getElementById("siteName"),
+  tagline: document.getElementById("siteTagline"),
+  quote: document.getElementById("siteQuote")
+};
 
-/*
-=========================================================
-LOAD SETTINGS
-=========================================================
-*/
+function fill(data = {}) {
+  fields.fee.value = data.platform_fee ?? data.fee ?? "";
+  fields.feeType.value = data.platform_fee_type ?? data.fee_type ?? "percentage";
+  if (data.effective_from) fields.effective.value = String(data.effective_from).slice(0,16);
+  fields.name.value = data.site_name ?? data.name ?? "";
+  fields.tagline.value = data.site_tagline ?? data.tagline ?? "";
+  fields.quote.value = data.site_quote ?? data.quote ?? "";
+}
 
 async function loadSettings() {
-    try {
-        const {
-            data,
-            error
-        } = await supabase
-            .from("site_settings")
-            .select("*")
-            .limit(1)
-            .maybeSingle();
+  try {
+    let platform = {};
+    let site = {};
 
-        if (error) throw error;
+    const p = await supabase.from(TABLES.platformSettings).select("*").eq("id", 1).maybeSingle();
+    if (!p.error && p.data) platform = p.data;
 
-        if (!data) {
-            console.warn("No site_settings row found.");
-            return;
-        }
+    const s = await supabase.from(TABLES.siteSettings).select("*").eq("id", 1).maybeSingle();
+    if (!s.error && s.data) site = s.data;
 
-        setValue("siteName", data.site_name);
-        setValue("siteTagline", data.tagline);
-        setValue("siteQuote", data.quote);
-        setValue("platformFee", data.platform_fee);
-    } catch (error) {
-        console.error("Settings load error:", error);
-        showMessage(
-            error.message || "Could not load settings.",
-            "error"
-        );
-    }
+    fill({ ...platform, ...site });
+  } catch (error) {
+    console.error(error);
+  }
 }
 
-/*
-=========================================================
-SETTINGS FORM
-=========================================================
-*/
+async function saveSettings(event) {
+  event.preventDefault();
+  saveBtn.disabled = true;
+  saveBtn.textContent = "Saving...";
 
-function setupSettingsForm() {
-    const form = document.getElementById("settingsForm");
+  const platformData = {
+    id: 1,
+    platform_fee: Number(fields.fee.value || 0),
+    platform_fee_type: fields.feeType.value,
+    effective_from: fields.effective.value ? new Date(fields.effective.value).toISOString() : new Date().toISOString()
+  };
 
-    if (!form) return;
+  const siteData = {
+    id: 1,
+    site_name: fields.name.value.trim(),
+    site_tagline: fields.tagline.value.trim(),
+    site_quote: fields.quote.value.trim()
+  };
 
-    form.addEventListener("submit", async (event) => {
-        event.preventDefault();
+  try {
+    const platformResult = await supabase.from(TABLES.platformSettings).upsert(platformData, { onConflict: "id" });
+    if (platformResult.error) throw new Error(`Platform settings: ${platformResult.error.message}`);
 
-        const siteName =
-            document.getElementById("siteName")?.value.trim();
+    const siteResult = await supabase.from(TABLES.siteSettings).upsert(siteData, { onConflict: "id" });
+    if (siteResult.error) throw new Error(`Site settings: ${siteResult.error.message}`);
 
-        const tagline =
-            document.getElementById("siteTagline")?.value.trim();
-
-        const quote =
-            document.getElementById("siteQuote")?.value.trim();
-
-        const platformFee =
-            document.getElementById("platformFee")?.value;
-
-        const saveButton =
-            document.getElementById("saveSettingsButton");
-
-        if (saveButton) {
-            saveButton.disabled = true;
-            saveButton.textContent = "Saving...";
-        }
-
-        try {
-            const {
-                data: existing,
-                error: findError
-            } = await supabase
-                .from("site_settings")
-                .select("id")
-                .limit(1)
-                .maybeSingle();
-
-            if (findError) {
-                throw findError;
-            }
-
-            const values = {
-                site_name: siteName || null,
-                tagline: tagline || null,
-                quote: quote || null,
-                platform_fee:
-                    platformFee === ""
-                        ? null
-                        : Number(platformFee),
-                updated_at: new Date().toISOString()
-            };
-
-            let result;
-
-            if (existing?.id) {
-                result = await supabase
-                    .from("site_settings")
-                    .update(values)
-                    .eq("id", existing.id)
-                    .select()
-                    .single();
-            } else {
-                result = await supabase
-                    .from("site_settings")
-                    .insert(values)
-                    .select()
-                    .single();
-            }
-
-            if (result.error) {
-                throw result.error;
-            }
-
-            showMessage(
-                "Settings updated successfully ✓",
-                "success"
-            );
-
-        } catch (error) {
-            console.error(
-                "Settings save error:",
-                error
-            );
-
-            showMessage(
-                error.message ||
-                    "Could not save settings.",
-                "error"
-            );
-        } finally {
-            if (saveButton) {
-                saveButton.disabled = false;
-                saveButton.textContent = "Save Changes";
-            }
-        }
-    });
+    showToast("Settings saved successfully.");
+  } catch (error) {
+    console.error(error);
+    showToast(error.message || "Could not save settings.");
+  } finally {
+    saveBtn.disabled = false;
+    saveBtn.textContent = "Save Changes";
+  }
 }
 
-/*
-=========================================================
-HELPERS
-=========================================================
-*/
-
-function setValue(id, value) {
-    const element =
-        document.getElementById(id);
-
-    if (!element) return;
-
-    element.value =
-        value ?? "";
-}
-
-function showMessage(message, type) {
-    const element =
-        document.getElementById("settingsMessage");
-
-    if (!element) return;
-
-    element.textContent = message;
-    element.dataset.type = type;
-    element.classList.add("show");
-
-    setTimeout(() => {
-        element.classList.remove("show");
-    }, 3000);
-}
+form?.addEventListener("submit", saveSettings);
+window.addEventListener("admin-ready", loadSettings);
+window.addEventListener("settings-requested", loadSettings);

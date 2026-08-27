@@ -1,160 +1,39 @@
-import {
-    supabase
-} from "./supabase.js";
+const navItems = document.querySelectorAll(".nav-item");
+const pages = {
+  dashboard: document.getElementById("dashboardPage"),
+  settings: document.getElementById("settingsPage")
+};
+const pageTitle = document.getElementById("pageTitle");
+const pageSubtitle = document.getElementById("pageSubtitle");
+const sidebar = document.getElementById("sidebar");
+const overlay = document.getElementById("sidebarOverlay");
 
-import {
-    requireAdmin,
-    logoutAdmin
-} from "./auth.js";
+const meta = {
+  dashboard: ["Dashboard", "Your platform at a glance"],
+  settings: ["Settings", "Small controls for your platform"]
+};
 
-document.addEventListener("DOMContentLoaded", async () => {
-    const user = await requireAdmin();
+function openPage(page) {
+  Object.entries(pages).forEach(([name, element]) => {
+    element?.classList.toggle("hidden", name !== page);
+  });
+  navItems.forEach(btn => btn.classList.toggle("active", btn.dataset.page === page));
+  const [title, subtitle] = meta[page] || meta.dashboard;
+  if (pageTitle) pageTitle.textContent = title;
+  if (pageSubtitle) pageSubtitle.textContent = subtitle;
+  sidebar?.classList.remove("open");
+  overlay?.classList.remove("show");
+  if (page === "dashboard") window.dispatchEvent(new Event("dashboard-requested"));
+  if (page === "settings") window.dispatchEvent(new Event("settings-requested"));
+}
 
-    if (!user) return;
+navItems.forEach(btn => btn.addEventListener("click", () => openPage(btn.dataset.page)));
 
-    setupAdminUI(user);
+document.getElementById("mobileMenuBtn")?.addEventListener("click", () => {
+  sidebar?.classList.add("open");
+  overlay?.classList.add("show");
 });
-
-function setupAdminUI(user) {
-
-    const emailElement =
-        document.getElementById("adminEmail");
-
-    if (emailElement) {
-        emailElement.textContent =
-            user.email || "Admin";
-    }
-
-    const logoutButton =
-        document.getElementById("logoutButton");
-
-    if (logoutButton) {
-        logoutButton.addEventListener(
-            "click",
-            logoutAdmin
-        );
-    }
-}
-
-/*
-=========================================================
-COMMON ADMIN HELPERS
-=========================================================
-*/
-
-export function showToast(message, type = "success") {
-
-    let toast =
-        document.getElementById("adminToast");
-
-    if (!toast) {
-
-        toast = document.createElement("div");
-
-        toast.id = "adminToast";
-
-        toast.className = "admin-toast";
-
-        document.body.appendChild(toast);
-    }
-
-    toast.textContent = message;
-
-    toast.dataset.type = type;
-
-    toast.classList.add("show");
-
-    setTimeout(() => {
-        toast.classList.remove("show");
-    }, 2500);
-}
-
-
-export function formatNumber(value) {
-
-    return Number(value || 0)
-        .toLocaleString("en-IN");
-}
-
-
-export function formatRupees(value) {
-
-    return "₹" +
-        Number(value || 0)
-            .toLocaleString("en-IN");
-}
-
-
-/*
-=========================================================
-SAFE DATABASE COUNT
-=========================================================
-*/
-
-export async function getTableCount(table) {
-
-    const {
-        count,
-        error
-    } = await supabase
-        .from(table)
-        .select("*", {
-            count: "exact",
-            head: true
-        });
-
-    if (error) {
-        console.error(
-            `Count error (${table}):`,
-            error
-        );
-
-        return 0;
-    }
-
-    return count || 0;
-}
-
-
-/*
-=========================================================
-GENERIC SETTINGS UPDATE
-=========================================================
-*/
-
-export async function updateSetting(
-    id,
-    values
-) {
-
-    const {
-        data,
-        error
-    } = await supabase
-        .from("site_settings")
-        .update(values)
-        .eq("id", id)
-        .select()
-        .single();
-
-    if (error) {
-        console.error(
-            "Settings update error:",
-            error
-        );
-
-        showToast(
-            error.message ||
-            "Unable to update settings.",
-            "error"
-        );
-
-        return null;
-    }
-
-    showToast(
-        "Settings updated successfully."
-    );
-
-    return data;
-}
+overlay?.addEventListener("click", () => {
+  sidebar?.classList.remove("open");
+  overlay?.classList.remove("show");
+});
