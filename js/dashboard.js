@@ -1,4 +1,4 @@
-import { supabase, TABLES } from "./supabase.js";
+import { supabase } from "./supabase.js";
 
 /* =========================================================
    FASAL SETU ADMIN — DASHBOARD
@@ -6,582 +6,511 @@ import { supabase, TABLES } from "./supabase.js";
 
 const $ = (id) => document.getElementById(id);
 
+const state = {
+  farmers: [],
+  deliveryPartners: [],
+  orders: [],
+  farmerPayouts: [],
+  deliveries: [],
+};
+
 /* ---------------------------------------------------------
    Helpers
 --------------------------------------------------------- */
-
 function setText(id, value) {
-    const el = $(id);
-    if (el) {
-        el.textContent = value;
-    }
+  const el = $(id);
+  if (el) el.textContent = value;
 }
 
 function formatCurrency(value) {
-    const amount = Number(value || 0);
+  const amount = Number(value || 0);
 
-    return new Intl.NumberFormat("en-IN", {
-        style: "currency",
-        currency: "INR",
-        maximumFractionDigits: 0,
-    }).format(amount);
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 0,
+  }).format(amount);
 }
 
 function formatDateTime(date) {
-    if (!date) return "—";
+  if (!date) return "—";
 
-    return new Intl.DateTimeFormat("en-IN", {
-        dateStyle: "medium",
-        timeStyle: "short",
-    }).format(date);
+  const d = date instanceof Date ? date : new Date(date);
+
+  if (Number.isNaN(d.getTime())) {
+    return "—";
+  }
+
+  return new Intl.DateTimeFormat("en-IN", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(d);
+}
+
+function escapeHTML(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function normalize(value) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase();
 }
 
 function showToast(message, type = "success") {
-    const toast = $("toast");
+  const toast = $("toast");
 
-    if (!toast) return;
+  if (!toast) return;
 
-    toast.textContent = message;
-    toast.className = `toast ${type}`;
+  toast.textContent = message;
+  toast.className = `toast ${type}`;
 
-    setTimeout(() => {
-        toast.className = "toast";
-    }, 3000);
+  setTimeout(() => {
+    toast.className = "toast";
+  }, 3000);
+}
+
+function isCompletedOrder(order) {
+  return [
+    "completed",
+    "complete",
+    "delivered",
+    "success",
+    "successful",
+    "fulfilled",
+  ].includes(
+    normalize(order?.order_status ?? order?.status)
+  );
 }
 
 /* ---------------------------------------------------------
-   Count rows
+   Generic Supabase fetch helpers
 --------------------------------------------------------- */
+async function fetchRows(table, select = "*") {
+  const { data, error } = await supabase
+    .from(table)
+    .select(select);
+
+  if (error) {
+    console.error(`${table} fetch error:`, error);
+    throw error;
+  }
+
+  return Array.isArray(data) ? data : [];
+}
 
 async function countRows(table, filters = []) {
-    let query = supabase
-        .from(table)
-        .select("*", {
-            count: "exact",
-            head: true,
-        });
+  let query = supabase
+    .from(table)
+    .select("*", {
+      count: "exact",
+      head: true,
+    });
 
-    for (const filter of filters) {
-        if (filter.operator === "eq") {
-            query = query.eq(
-                filter.column,
-                filter.value
-            );
-        }
-
-        if (filter.operator === "neq") {
-            query = query.neq(
-                filter.column,
-                filter.value
-            );
-        }
+  for (const filter of filters) {
+    if (filter.operator === "eq") {
+      query = query.eq(
+        filter.column,
+        filter.value
+      );
     }
 
-    const { count, error } = await query;
-
-    if (error) {
-        console.error(
-            `Count error: ${table}`,
-            error
-        );
-
-        return 0;
+    if (filter.operator === "neq") {
+      query = query.neq(
+        filter.column,
+        filter.value
+      );
     }
+  }
 
-    return Number(count || 0);
+  const { count, error } = await query;
+
+  if (error) {
+    console.error(
+      `Count error: ${table}`,
+      error
+    );
+
+    return 0;
+  }
+
+  return Number(count || 0);
 }
 
 /* =========================================================
    BASIC COUNTS
-   ========================================================= */
+========================================================= */
 
 async function loadBasicCounts() {
-    /*
-     * FARMERS
-     */
-    const farmers = await countRows(
-        "farmers"
-    );
+  const [
+    farmers,
+    customers,
+    deliveryBoys,
+    products,
+  ] = await Promise.all([
+    countRows("farmers"),
 
-    setText(
-        "farmersCount",
-        farmers
-    );
+    countRows("profiles", [
+      {
+        column: "role",
+        operator: "eq",
+        value: "consumer",
+      },
+    ]),
 
-    /*
-     * CUSTOMERS
-     *
-     * IMPORTANT:
-     * Your actual customer role is "consumer".
-     */
-    const customers = await countRows(
+    countRows("delivery_partners"),
+
+    countRows("products"),
+  ]);
+
+  setText(
+    "farmersCount",
+    farmers
+  );
+
+  setText(
+    "customersCount",
+    customers
+  );
+
+  setText(
+    "deliveryBoysCount",
+    deliveryBoys
+  );
+
+  setText(
+    "productsCount",
+    products
+  );
+}
+
+/* =========================================================
+   FARMERS
+
+   farmers.user_id -> profiles.id
+========================================================= */
+
+async function loadFarmers() {
+  try {
+    const [
+      farmers,
+      profiles,
+      payouts,
+    ] = await Promise.all([
+      fetchRows(
+        "farmers",
+        "*"
+      ),
+
+      fetchRows(
         "profiles",
-        [
-            {
-                column: "role",
-                operator: "eq",
-                value: "consumer",
-            },
-        ]
+        `
+          id,
+          full_name,
+          phone,
+          email,
+          address,
+          city,
+          district,
+          state,
+          mobile,
+          role,
+          is_active
+        `
+      ),
+
+      fetchRows(
+        "farmer_payouts",
+        "*"
+      ).catch(() => []),
+    ]);
+
+    const profileMap = new Map(
+      profiles.map((profile) => [
+        String(profile.id),
+        profile,
+      ])
     );
 
-    setText(
-        "customersCount",
-        customers
+    const earningMap = new Map();
+
+    for (const payout of payouts) {
+      const farmerId = String(
+        payout.farmer_id ?? ""
+      );
+
+      if (!farmerId) {
+        continue;
+      }
+
+      const net = Number(
+        payout.net_amount ?? 0
+      );
+
+      if (Number.isFinite(net)) {
+        earningMap.set(
+          farmerId,
+          (
+            earningMap.get(farmerId) || 0
+          ) + net
+        );
+      }
+    }
+
+    state.farmers = farmers.map(
+      (farmer) => {
+        const profile =
+          profileMap.get(
+            String(farmer.user_id)
+          ) || {};
+
+        return {
+          ...farmer,
+
+          profile,
+
+          name:
+            profile.full_name ||
+            farmer.full_name ||
+            farmer.name ||
+            farmer.farm_name ||
+            "Farmer",
+
+          mobile:
+            profile.phone ||
+            profile.mobile ||
+            farmer.mobile ||
+            farmer.phone ||
+            "—",
+
+          email:
+            profile.email ||
+            farmer.email ||
+            "—",
+
+          city:
+            profile.city ||
+            farmer.city ||
+            "—",
+
+          district:
+            profile.district ||
+            farmer.district ||
+            "—",
+
+          state:
+            profile.state ||
+            farmer.state ||
+            "—",
+
+          farmName:
+            farmer.farm_name ||
+            "—",
+
+          earning:
+            earningMap.get(
+              String(farmer.id)
+            ) || 0,
+        };
+      }
     );
 
-    /*
-     * DELIVERY BOYS
-     *
-     * Actual table:
-     * delivery_partners
-     */
-    const deliveryBoys = await countRows(
-        "delivery_partners"
+    renderFarmers();
+
+  } catch (error) {
+    console.error(
+      "Farmers load error:",
+      error
     );
 
-    setText(
-        "deliveryBoysCount",
-        deliveryBoys
+    state.farmers = [];
+
+    renderFarmers();
+  }
+}
+
+function renderFarmers() {
+  const container =
+    $("farmersTableBody");
+
+  const empty =
+    $("farmersEmpty");
+
+  if (!container) {
+    return;
+  }
+
+  const search = normalize(
+    $("farmerSearch")?.value
+  );
+
+  const filtered =
+    state.farmers.filter(
+      (farmer) => {
+        if (!search) {
+          return true;
+        }
+
+        return [
+          farmer.name,
+          farmer.mobile,
+          farmer.email,
+          farmer.farmName,
+          farmer.city,
+          farmer.district,
+          farmer.state,
+        ].some(
+          (value) =>
+            normalize(value)
+              .includes(search)
+        );
+      }
     );
 
-    /*
-     * PRODUCTS
-     */
-    const products = await countRows(
-        "products"
-    );
+  container.innerHTML =
+    filtered.map(
+      (farmer) => `
+        <tr>
+          <td>
+            <strong>
+              ${escapeHTML(
+                farmer.name
+              )}
+            </strong>
 
-    setText(
-        "productsCount",
-        products
-    );
+            <small>
+              ${escapeHTML(
+                farmer.farmName
+              )}
+            </small>
+          </td>
+
+          <td>
+            ${escapeHTML(
+              farmer.mobile
+            )}
+          </td>
+
+          <td>
+            ${escapeHTML(
+              farmer.email
+            )}
+          </td>
+
+          <td>
+            ${escapeHTML(
+              farmer.city
+            )}
+          </td>
+
+          <td>
+            <strong>
+              ${formatCurrency(
+                farmer.earning
+              )}
+            </strong>
+          </td>
+
+          <td>
+            <span class="status-badge ${normalize(
+              farmer.verification_status
+            )}">
+              ${escapeHTML(
+                farmer.verification_status ||
+                "pending"
+              )}
+            </span>
+          </td>
+        </tr>
+      `
+    ).join("");
+
+  if (empty) {
+    empty.style.display =
+      filtered.length
+        ? "none"
+        : "block";
+  }
 }
 
 /* =========================================================
-   ORDERS
-   ========================================================= */
+   DELIVERY PARTNERS
 
-async function loadOrders() {
-    /*
-     * Fetch all orders.
-     *
-     * We deliberately use "*" because your project may
-     * have order_status rather than status.
-     */
-    const {
-        data,
-        error,
-    } = await supabase
-        .from("orders")
-        .select("*");
+   delivery_partners.user_id -> profiles.id
+========================================================= */
 
-    if (error) {
-        console.error(
-            "Orders fetch error:",
-            error
-        );
+async function loadDeliveryPartners() {
+  try {
+    const [
+      partners,
+      profiles,
+      deliveries,
+      orders,
+    ] = await Promise.all([
+      fetchRows(
+        "delivery_partners",
+        "*"
+      ),
 
-        setText("totalOrders", 0);
-        setText("pendingOrders", 0);
-        setText("completedOrders", 0);
+      fetchRows(
+        "profiles",
+        `
+          id,
+          full_name,
+          phone,
+          email,
+          address,
+          city,
+          district,
+          state,
+          mobile,
+          role,
+          is_active
+        `
+      ),
 
-        return [];
-    }
+      fetchRows(
+        "deliveries",
+        "*"
+      ).catch(() => []),
 
-    const orders = Array.isArray(data)
-        ? data
-        : [];
+      fetchRows(
+        "orders",
+        "*"
+      ).catch(() => []),
+    ]);
 
-    setText(
-        "totalOrders",
-        orders.length
+    const profileMap = new Map(
+      profiles.map((profile) => [
+        String(profile.id),
+        profile,
+      ])
     );
 
-    let pending = 0;
-    let completed = 0;
-
-    for (const order of orders) {
-        const status = String(
-            order.order_status ??
-            order.status ??
-            ""
-        )
-            .trim()
-            .toLowerCase();
-
-        /*
-         * Completed statuses
-         */
-        if (
-            [
-                "completed",
-                "complete",
-                "delivered",
-                "success",
-                "successful",
-                "fulfilled",
-            ].includes(status)
-        ) {
-            completed++;
-            continue;
-        }
-
-        /*
-         * Pending statuses
-         */
-        if (
-            [
-                "pending",
-                "placed",
-                "processing",
-                "confirmed",
-                "accepted",
-                "out_for_delivery",
-                "out for delivery",
-            ].includes(status)
-        ) {
-            pending++;
-        }
-    }
-
-    setText(
-        "pendingOrders",
-        pending
+    const orderMap = new Map(
+      orders.map((order) => [
+        String(order.id),
+        order,
+      ])
     );
 
-    setText(
-        "completedOrders",
-        completed
-    );
+    const earningMap = new Map();
 
-    return orders;
-}
+    for (const delivery of deliveries) {
+      const partnerId = String(
+        delivery.delivery_partner_id ?? ""
+      );
 
-/* =========================================================
-   EARNINGS
-   ========================================================= */
+      if (!partnerId) {
+        continue;
+      }
 
-function getOrderDate(order) {
-    return (
-        order.created_at ||
-        order.order_date ||
-        order.createdAt ||
-        order.updated_at ||
-        null
-    );
-}
+      const deliveryStatus =
+        normalize(delivery.status);
 
-function getOrderAmount(order) {
-    /*
-     * Prefer actual platform earning.
-     *
-     * If platform_fee exists, that is the admin earning.
-     *
-     * Otherwise fall back to common amount fields.
-     */
-    const platformFeeFields = [
-        "platform_fee",
-        "platformFee",
-        "admin_fee",
-        "adminFee",
-        "commission",
-        "commission_amount",
-    ];
-
-    for (const field of platformFeeFields) {
-        if (
-            order[field] !== undefined &&
-            order[field] !== null &&
-            order[field] !== ""
-        ) {
-            const amount = Number(
-                order[field]
-            );
-
-            if (Number.isFinite(amount)) {
-                return amount;
-            }
-        }
-    }
-
-    /*
-     * Fallback.
-     *
-     * This is used only when no platform fee field
-     * exists in the order row.
-     */
-    const amountFields = [
-        "total_amount",
-        "total",
-        "grand_total",
-        "amount",
-        "order_total",
-    ];
-
-    for (const field of amountFields) {
-        if (
-            order[field] !== undefined &&
-            order[field] !== null &&
-            order[field] !== ""
-        ) {
-            const amount = Number(
-                order[field]
-            );
-
-            if (Number.isFinite(amount)) {
-                return amount;
-            }
-        }
-    }
-
-    return 0;
-}
-
-function isCompletedOrder(order) {
-    const status = String(
-        order.order_status ??
-        order.status ??
-        ""
-    )
-        .trim()
-        .toLowerCase();
-
-    return [
-        "completed",
-        "complete",
-        "delivered",
-        "success",
-        "successful",
-        "fulfilled",
-    ].includes(status);
-}
-
-function getDateRange(type) {
-    const now = new Date();
-
-    const start = new Date(now);
-
-    if (type === "week") {
-        /*
-         * Monday = beginning of week
-         */
-        const day = start.getDay();
-
-        const difference =
-            day === 0
-                ? 6
-                : day - 1;
-
-        start.setDate(
-            start.getDate() - difference
-        );
-
-        start.setHours(
-            0,
-            0,
-            0,
-            0
-        );
-    }
-
-    if (type === "month") {
-        start.setDate(1);
-
-        start.setHours(
-            0,
-            0,
-            0,
-            0
-        );
-    }
-
-    if (type === "year") {
-        start.setMonth(0);
-        start.setDate(1);
-
-        start.setHours(
-            0,
-            0,
-            0,
-            0
-        );
-    }
-
-    return {
-        start,
-        end: now,
-    };
-}
-
-function calculateEarnings(
-    orders,
-    type
-) {
-    const {
-        start,
-        end,
-    } = getDateRange(type);
-
-    let total = 0;
-
-    for (const order of orders) {
-        if (!isCompletedOrder(order)) {
-            continue;
-        }
-
-        const rawDate =
-            getOrderDate(order);
-
-        if (!rawDate) {
-            continue;
-        }
-
-        const orderDate =
-            new Date(rawDate);
-
-        if (
-            Number.isNaN(
-                orderDate.getTime()
-            )
-        ) {
-            continue;
-        }
-
-        if (
-            orderDate >= start &&
-            orderDate <= end
-        ) {
-            total += getOrderAmount(
-                order
-            );
-        }
-    }
-
-    return total;
-}
-
-async function loadEarnings(orders) {
-    const weekly =
-        calculateEarnings(
-            orders,
-            "week"
-        );
-
-    const monthly =
-        calculateEarnings(
-            orders,
-            "month"
-        );
-
-    const yearly =
-        calculateEarnings(
-            orders,
-            "year"
-        );
-
-    setText(
-        "weeklyEarnings",
-        formatCurrency(weekly)
-    );
-
-    setText(
-        "monthlyEarnings",
-        formatCurrency(monthly)
-    );
-
-    setText(
-        "yearlyEarnings",
-        formatCurrency(yearly)
-    );
-}
-
-/* =========================================================
-   LAST UPDATED
-   ========================================================= */
-
-function updateLastUpdated() {
-    setText(
-        "lastUpdated",
-        formatDateTime(
-            new Date()
-        )
-    );
-}
-
-/* =========================================================
-   LOAD DASHBOARD
-   ========================================================= */
-
-export async function loadDashboard() {
-    try {
-        /*
-         * Load counts and orders independently.
-         *
-         * One failed query should NOT stop the
-         * entire dashboard from rendering.
-         */
-        await loadBasicCounts();
-
-        const orders =
-            await loadOrders();
-
-        await loadEarnings(
-            orders
-        );
-
-        updateLastUpdated();
-
-    } catch (error) {
-        console.error(
-            "Dashboard loading error:",
-            error
-        );
-
-        showToast(
-            "Some dashboard data could not be loaded.",
-            "error"
-        );
-    }
-}
-
-/* =========================================================
-   REFRESH BUTTON
-   ========================================================= */
-
-document.addEventListener(
-    "DOMContentLoaded",
-    () => {
-        const refreshButton =
-            $("refreshDashboardBtn");
-
-        if (refreshButton) {
-            refreshButton.addEventListener(
-                "click",
-                async () => {
-                    refreshButton.disabled = true;
-
-                    const originalText =
-                        refreshButton.textContent;
-
-                    refreshButton.textContent =
-                        "↻ Refreshing...";
-
-                    await loadDashboard();
-
-                    refreshButton.disabled =
-                        false;
-
-                    refreshButton.textContent =
-                        originalText ||
-                        "↻ Refresh";
-                }
-            );
-        }
-
-        /*
-         * Initial dashboard load
-         */
-        loadDashboard();
-    }
-);
+      const order
