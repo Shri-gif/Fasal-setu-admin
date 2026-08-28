@@ -14,21 +14,17 @@ const meta = {
 };
 
 function openPage(page) {
-  Object.entries(pages).forEach(([name, element]) => {
-    element?.classList.toggle("hidden", name !== page);
-  });
+  Object.entries(pages).forEach(([name, element]) => element?.classList.toggle("hidden", name !== page));
   navItems.forEach(btn => btn.classList.toggle("active", btn.dataset.page === page));
   const [title, subtitle] = meta[page] || meta.dashboard;
   if (pageTitle) pageTitle.textContent = title;
   if (pageSubtitle) pageSubtitle.textContent = subtitle;
   sidebar?.classList.remove("open");
   overlay?.classList.remove("show");
-  if (page === "dashboard") window.dispatchEvent(new Event("dashboard-requested"));
-  if (page === "settings") window.dispatchEvent(new Event("settings-requested"));
+  window.dispatchEvent(new Event(page === "dashboard" ? "dashboard-requested" : "settings-requested"));
 }
 
 navItems.forEach(btn => btn.addEventListener("click", () => openPage(btn.dataset.page)));
-
 document.getElementById("mobileMenuBtn")?.addEventListener("click", () => {
   sidebar?.classList.add("open");
   overlay?.classList.add("show");

@@ -3,74 +3,120 @@ import { supabase, TABLES, showToast } from "./supabase.js";
 const form = document.getElementById("settingsForm");
 const saveBtn = document.getElementById("saveSettingsBtn");
 
-const fields = {
-  fee: document.getElementById("platformFee"),
-  feeType: document.getElementById("platformFeeType"),
-  effective: document.getElementById("feeEffectiveFrom"),
-  name: document.getElementById("siteName"),
-  tagline: document.getElementById("siteTagline"),
-  quote: document.getElementById("siteQuote")
-};
+const field = id => document.getElementById(id);
 
-function fill(data = {}) {
-  fields.fee.value = data.platform_fee ?? data.fee ?? "";
-  fields.feeType.value = data.platform_fee_type ?? data.fee_type ?? "percentage";
-  if (data.effective_from) fields.effective.value = String(data.effective_from).slice(0,16);
-  fields.name.value = data.site_name ?? data.name ?? "";
-  fields.tagline.value = data.site_tagline ?? data.tagline ?? "";
-  fields.quote.value = data.site_quote ?? data.quote ?? "";
+function setValue(id, value) {
+  const el = field(id);
+  if (el) el.value = value ?? "";
 }
+
+function toLocalDateTime(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = n => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+let platformRow = null;
+let siteRow = null;
 
 async function loadSettings() {
   try {
-    let platform = {};
-    let site = {};
+    platformRow = null;
+    siteRow = null;
 
-    const p = await supabase.from(TABLES.platformSettings).select("*").eq("id", 1).maybeSingle();
-    if (!p.error && p.data) platform = p.data;
+    const platform = await supabase.from(TABLES.platformSettings).select("*").eq("id", 1).maybeSingle();
+    if (!platform.error) platformRow = platform.data;
 
-    const s = await supabase.from(TABLES.siteSettings).select("*").eq("id", 1).maybeSingle();
-    if (!s.error && s.data) site = s.data;
+    const site = await supabase.from(TABLES.siteSettings).select("*").eq("id", 1).maybeSingle();
+    if (!site.error) siteRow = site.data;
 
-    fill({ ...platform, ...site });
+    const data = { ...(platformRow || {}), ...(siteRow || {}) };
+    setValue("platformFee", data.platform_fee ?? data.fee ?? "");
+    setValue("platformFeeType", data.platform_fee_type ?? data.fee_type ?? "percentage");
+    setValue("feeEffectiveFrom", toLocalDateTime(data.effective_from ?? data.fee_effective_from));
+    setValue("siteName", data.site_name ?? data.name ?? "");
+    setValue("siteTagline", data.site_tagline ?? data.tagline ?? "");
+    setValue("siteQuote", data.site_quote ?? data.quote ?? "");
   } catch (error) {
-    console.error(error);
+    console.error("Settings load error:", error);
+    showToast(error?.message || "Could not load settings.");
   }
+}
+
+function buildSiteData() {
+  const name = field("siteName")?.value.trim() || null;
+  const tagline = field("siteTagline")?.value.trim() || null;
+  const quote = field("siteQuote")?.value.trim() || null;
+
+  // Existing schema in this project uses site_name + tagline + quote.
+  // If newer column names are already present, use those instead.
+  const data = { id: siteRow?.id ?? 1 };
+  if (siteRow && Object.prototype.hasOwnProperty.call(siteRow, "site_name")) data.site_name = name;
+  else if (siteRow && Object.prototype.hasOwnProperty.call(siteRow, "name")) data.name = name;
+  else data.site_name = name;
+
+  if (siteRow && Object.prototype.hasOwnProperty.call(siteRow, "site_tagline")) data.site_tagline = tagline;
+  else data.tagline = tagline;
+
+  if (siteRow && Object.prototype.hasOwnProperty.call(siteRow, "site_quote")) data.site_quote = quote;
+  else data.quote = quote;
+  return data;
+}
+
+function buildPlatformData() {
+  const fee = Number(field("platformFee")?.value || 0);
+  const feeType = field("platformFeeType")?.value || "percentage";
+  const effective = field("feeEffectiveFrom")?.value;
+  const data = {
+    id: platformRow?.id ?? 1,
+    platform_fee: fee,
+    platform_fee_type: feeType,
+    effective_from: effective ? new Date(effective).toISOString() : new Date().toISOString()
+  };
+  return data;
 }
 
 async function saveSettings(event) {
   event.preventDefault();
-  saveBtn.disabled = true;
-  saveBtn.textContent = "Saving...";
-
-  const platformData = {
-    id: 1,
-    platform_fee: Number(fields.fee.value || 0),
-    platform_fee_type: fields.feeType.value,
-    effective_from: fields.effective.value ? new Date(fields.effective.value).toISOString() : new Date().toISOString()
-  };
-
-  const siteData = {
-    id: 1,
-    site_name: fields.name.value.trim(),
-    site_tagline: fields.tagline.value.trim(),
-    site_quote: fields.quote.value.trim()
-  };
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = "Saving..."; }
 
   try {
-    const platformResult = await supabase.from(TABLES.platformSettings).upsert(platformData, { onConflict: "id" });
-    if (platformResult.error) throw new Error(`Platform settings: ${platformResult.error.message}`);
+    const platformData = buildPlatformData();
+    const siteData = buildSiteData();
 
-    const siteResult = await supabase.from(TABLES.siteSettings).upsert(siteData, { onConflict: "id" });
-    if (siteResult.error) throw new Error(`Site settings: ${siteResult.error.message}`);
+    let platformSaved = false;
+    if (platformRow || !siteRow) {
+      const result = await supabase.from(TABLES.platformSettings).upsert(platformData, { onConflict: "id" });
+      if (!result.error) platformSaved = true;
+      else if (!siteRow) throw new Error(`Platform settings: ${result.error.message}`);
+    }
 
-    showToast("Settings saved successfully.");
+    // If platform_settings does not exist, keep fee fields in site_settings.
+    if (!platformSaved) {
+      const existing = siteRow || {};
+      const fallback = { id: existing.id ?? 1, ...siteData,
+        platform_fee: platformData.platform_fee,
+        platform_fee_type: platformData.platform_fee_type,
+        effective_from: platformData.effective_from
+      };
+      const result = await supabase.from(TABLES.siteSettings).upsert(fallback, { onConflict: "id" });
+      if (result.error) throw new Error(`Site settings: ${result.error.message}`);
+    }
+
+    if (platformSaved) {
+      const result = await supabase.from(TABLES.siteSettings).upsert(siteData, { onConflict: "id" });
+      if (result.error) throw new Error(`Site content: ${result.error.message}`);
+    }
+
+    showToast("Settings saved successfully ✓");
+    await loadSettings();
   } catch (error) {
-    console.error(error);
-    showToast(error.message || "Could not save settings.");
+    console.error("Settings save error:", error);
+    showToast(error?.message || "Could not save settings.");
   } finally {
-    saveBtn.disabled = false;
-    saveBtn.textContent = "Save Changes";
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = "Save Changes"; }
   }
 }
 

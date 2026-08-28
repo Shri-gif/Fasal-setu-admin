@@ -1,4 +1,4 @@
-import { supabase } from "./supabase.js";
+import { supabase, TABLES } from "./supabase.js";
 
 const loginScreen = document.getElementById("loginScreen");
 const adminApp = document.getElementById("adminApp");
@@ -15,165 +15,91 @@ function setMessage(text = "") {
 function showApp(user) {
   loginScreen?.classList.add("hidden");
   adminApp?.classList.remove("hidden");
-
-  if (adminEmail) {
-    adminEmail.textContent = user?.email || "Admin";
-  }
-
-  window.dispatchEvent(
-    new CustomEvent("admin-ready", {
-      detail: { user }
-    })
-  );
+  if (adminEmail) adminEmail.textContent = user?.email || "Admin";
+  window.dispatchEvent(new CustomEvent("admin-ready", { detail: { user } }));
 }
 
-function showLogin() {
+function showLogin(message = "") {
   adminApp?.classList.add("hidden");
   loginScreen?.classList.remove("hidden");
+  setMessage(message);
 }
 
 async function isAdmin(user) {
   if (!user?.id) return false;
 
-  // Allow an explicit admin role if one has been configured in Supabase Auth.
-  const appRole = user.app_metadata?.role;
-  const userRole = user.user_metadata?.role;
+  // Preferred: an explicit whitelist row in admin_users.
+  try {
+    const { data, error } = await supabase
+      .from(TABLES.adminUsers)
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("active", true)
+      .maybeSingle();
 
-  if (appRole === "admin" || userRole === "admin") {
-    return true;
-  }
+    if (!error && data) return true;
+  } catch (_) {}
 
-  // Main admin whitelist check.
-  // The RLS SELECT policy should allow the logged-in user to read
-  // only their own admin_users row.
-  const { data, error } = await supabase
-    .from("admin_users")
-    .select("id, user_id, active, email")
-    .eq("user_id", user.id)
-    .eq("active", true)
-    .maybeSingle();
-
-  if (error) {
-    console.error("admin_users check failed:", error);
-
-    throw new Error(
-      `Admin check failed: ${error.message || "Unable to read admin_users"}`
-    );
-  }
-
-  return !!data;
+  // Also support an admin role placed in Auth metadata.
+  return user?.app_metadata?.role === "admin" || user?.user_metadata?.role === "admin";
 }
 
-async function verifyAndOpen(user) {
-  try {
-    const allowed = await isAdmin(user);
+async function login(event) {
+  event.preventDefault();
+  setMessage("");
 
-    if (!allowed) {
+  const email = document.getElementById("email")?.value.trim();
+  const password = document.getElementById("password")?.value;
+  if (!email || !password) return setMessage("Enter your email and password.");
+
+  loginBtn.disabled = true;
+  loginBtn.textContent = "Checking...";
+
+  try {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+
+    if (!(await isAdmin(data.user))) {
       await supabase.auth.signOut();
       throw new Error("This account is not authorized for the admin panel.");
     }
 
-    showApp(user);
-    return true;
+    showApp(data.user);
   } catch (error) {
-    console.error("Admin verification error:", error);
-
-    showLogin();
-    setMessage(error.message || "Admin verification failed.");
-    return false;
+    console.error("Admin login error:", error);
+    setMessage(error?.message || "Login failed.");
+  } finally {
+    loginBtn.disabled = false;
+    loginBtn.textContent = "Login";
   }
 }
 
-loginForm?.addEventListener("submit", async (event) => {
-  event.preventDefault();
+loginForm?.addEventListener("submit", login);
 
-  setMessage("");
+logoutBtn?.addEventListener("click", async () => {
+  await supabase.auth.signOut();
+  showLogin();
+});
 
-  if (loginBtn) {
-    loginBtn.disabled = true;
-    loginBtn.textContent = "Checking...";
-  }
-
-  const emailInput = document.getElementById("email");
-  const passwordInput = document.getElementById("password");
-
-  const email = emailInput?.value.trim() || "";
-  const password = passwordInput?.value || "";
-
-  if (!email || !password) {
-    setMessage("Please enter your email and password.");
-
-    if (loginBtn) {
-      loginBtn.disabled = false;
-      loginBtn.textContent = "Login";
-    }
-
+supabase.auth.onAuthStateChange(async (_event, session) => {
+  if (!session?.user) {
+    showLogin();
     return;
   }
 
-  try {
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password
-    });
-
-    if (error) throw error;
-
-    if (!data?.user) {
-      throw new Error("Login succeeded, but no user was returned.");
-    }
-
-    await verifyAndOpen(data.user);
-  } catch (error) {
-    console.error("Login error:", error);
-
-    setMessage(error.message || "Login failed.");
-  } finally {
-    if (loginBtn) {
-      loginBtn.disabled = false;
-      loginBtn.textContent = "Login";
-    }
-  }
-});
-
-logoutBtn?.addEventListener("click", async () => {
-  try {
+  if (await isAdmin(session.user)) showApp(session.user);
+  else {
     await supabase.auth.signOut();
-  } finally {
-    showLogin();
-  }
-});
-
-/*
-  IMPORTANT:
-  Do not perform another admin_users query inside SIGNED_IN.
-  signInWithPassword() already performs the verification above.
-  A second query here can race with the first one and cause the
-  panel to immediately sign the user out.
-*/
-supabase.auth.onAuthStateChange((event, session) => {
-  if (event === "SIGNED_OUT" || !session?.user) {
-    showLogin();
+    showLogin("This account is not authorized for the admin panel.");
   }
 });
 
 (async () => {
-  try {
-    const { data, error } = await supabase.auth.getSession();
-
-    if (error) throw error;
-
-    if (!data?.session?.user) {
-      showLogin();
-      return;
-    }
-
-    await verifyAndOpen(data.session.user);
-  } catch (error) {
-    console.error("Session check error:", error);
-
+  const { data } = await supabase.auth.getSession();
+  if (!data.session?.user) showLogin();
+  else if (await isAdmin(data.session.user)) showApp(data.session.user);
+  else {
     await supabase.auth.signOut();
-    showLogin();
-    setMessage(error.message || "Could not verify your session.");
+    showLogin("This account is not authorized for the admin panel.");
   }
 })();

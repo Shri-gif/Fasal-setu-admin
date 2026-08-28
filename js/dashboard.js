@@ -4,31 +4,42 @@ const money = value => new Intl.NumberFormat("en-IN", {
   style: "currency", currency: "INR", maximumFractionDigits: 0
 }).format(Number(value || 0));
 
-function setText(id, value) {
+const setText = (id, value) => {
   const el = document.getElementById(id);
   if (el) el.textContent = value;
+};
+
+async function getOrders() {
+  const { data, error } = await supabase.from(TABLES.orders).select("*");
+  if (error) throw error;
+  return Array.isArray(data) ? data : [];
 }
 
-async function getOrderRows() {
-  const candidates = [
-    { table: TABLES.orders, amount: "total_amount", status: "status", created: "created_at" },
-    { table: TABLES.orders, amount: "total", status: "status", created: "created_at" },
-    { table: TABLES.orders, amount: "amount", status: "status", created: "created_at" },
-    { table: TABLES.orders, amount: "price", status: "status", created: "created_at" }
-  ];
-
-  for (const c of candidates) {
-    try {
-      const { data, error } = await supabase
-        .from(c.table)
-        .select(`*,${c.amount},${c.status},${c.created}`);
-      if (!error) return data || [];
-    } catch (_) {}
-  }
-  return [];
+async function getPlatformFee() {
+  try {
+    const { data } = await supabase.from(TABLES.platformSettings).select("*").eq("id", 1).maybeSingle();
+    if (data) return data;
+  } catch (_) {}
+  try {
+    const { data } = await supabase.from(TABLES.siteSettings).select("*").eq("id", 1).maybeSingle();
+    return data || {};
+  } catch (_) { return {}; }
 }
 
-function dateRange(period) {
+function isCompleted(order) {
+  return ["completed", "delivered", "success"].includes(String(order.order_status ?? order.status ?? "").toLowerCase());
+}
+
+function orderAmount(order) {
+  return Number(order.total_amount ?? order.subtotal ?? order.amount ?? order.total ?? order.price ?? 0) || 0;
+}
+
+function platformEarning(order) {
+  const direct = order.platform_fee ?? order.platformFee;
+  return direct === null || direct === undefined || direct === "" ? null : Number(direct) || 0;
+}
+
+function startOfPeriod(period) {
   const now = new Date();
   const start = new Date(now);
   if (period === "week") {
@@ -44,20 +55,31 @@ function dateRange(period) {
   return start;
 }
 
-function calculateEarnings(rows, period) {
-  const start = dateRange(period);
-  return rows.reduce((sum, row) => {
-    const created = new Date(row.created_at || row.created || 0);
-    if (created < start) return sum;
-    const total = Number(row.total_amount ?? row.total ?? row.amount ?? row.price ?? 0);
-    const fee = Number(row.platform_fee ?? row.platformFee ?? 0);
-    return sum + (fee || total);
-  }, 0);
+function calculateEarnings(orders, period, settings) {
+  const start = startOfPeriod(period);
+  let total = 0;
+  const fee = Number(settings.platform_fee ?? settings.fee ?? 0) || 0;
+  const feeType = settings.platform_fee_type ?? settings.fee_type ?? "percentage";
+
+  for (const order of orders) {
+    if (!isCompleted(order)) continue;
+    const date = new Date(order.created_at || order.created || 0);
+    if (Number.isNaN(date.getTime()) || date < start) continue;
+
+    const direct = platformEarning(order);
+    if (direct !== null) {
+      total += direct;
+    } else if (fee > 0) {
+      const amount = orderAmount(order);
+      total += feeType === "fixed" ? fee : amount * fee / 100;
+    }
+  }
+  return total;
 }
 
 async function loadDashboard() {
   try {
-    const [farmers, customers, delivery, products, orders] = await Promise.all([
+    const [farmers, customers, delivery, products, orders, settings] = await Promise.all([
       firstWorkingCount([
         { table: TABLES.farmers },
         { table: TABLES.profiles, column: "role", value: "farmer" }
@@ -72,7 +94,8 @@ async function loadDashboard() {
         { table: TABLES.profiles, column: "role", value: "delivery" }
       ]),
       firstWorkingCount([{ table: TABLES.products }]),
-      getOrderRows()
+      getOrders(),
+      getPlatformFee()
     ]);
 
     setText("farmersCount", farmers);
@@ -80,21 +103,19 @@ async function loadDashboard() {
     setText("deliveryBoysCount", delivery);
     setText("productsCount", products);
 
-    const total = orders.length;
-    const pending = orders.filter(o => ["pending","processing","confirmed","assigned","out_for_delivery"].includes(String(o.status || "").toLowerCase())).length;
-    const completed = orders.filter(o => ["completed","delivered","success"].includes(String(o.status || "").toLowerCase())).length;
+    const pending = orders.filter(o => ["pending", "processing", "confirmed", "assigned", "out_for_delivery", "new"].includes(String(o.order_status ?? o.status ?? "").toLowerCase())).length;
+    const completed = orders.filter(isCompleted).length;
 
-    setText("totalOrders", total);
+    setText("totalOrders", orders.length);
     setText("pendingOrders", pending);
     setText("completedOrders", completed);
-    setText("weeklyEarnings", money(calculateEarnings(orders, "week")));
-    setText("monthlyEarnings", money(calculateEarnings(orders, "month")));
-    setText("yearlyEarnings", money(calculateEarnings(orders, "year")));
-
-    setText("lastUpdated", `Updated ${new Date().toLocaleString("en-IN", { dateStyle:"medium", timeStyle:"short" })}`);
+    setText("weeklyEarnings", money(calculateEarnings(orders, "week", settings)));
+    setText("monthlyEarnings", money(calculateEarnings(orders, "month", settings)));
+    setText("yearlyEarnings", money(calculateEarnings(orders, "year", settings)));
+    setText("lastUpdated", `Updated ${new Date().toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}`);
   } catch (error) {
-    console.error(error);
-    showToast("Could not load some dashboard data.");
+    console.error("Dashboard error:", error);
+    showToast(error?.message || "Could not load dashboard data.");
   }
 }
 
