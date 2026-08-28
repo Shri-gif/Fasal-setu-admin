@@ -1,97 +1,104 @@
-import {
-    supabase,
-    TABLES,
-    showToast
-} from "./supabase.js";
-
+import { supabase, TABLES } from "./supabase.js";
 
 /* =========================================================
-   HELPERS
+   FASAL SETU ADMIN — DASHBOARD
    ========================================================= */
 
-function setText(id, value) {
-    const element = document.getElementById(id);
+const $ = (id) => document.getElementById(id);
 
-    if (element) {
-        element.textContent = value;
+/* ---------------------------------------------------------
+   Helpers
+--------------------------------------------------------- */
+
+function setText(id, value) {
+    const el = $(id);
+    if (el) {
+        el.textContent = value;
     }
 }
 
-
-function money(value) {
+function formatCurrency(value) {
     const amount = Number(value || 0);
 
     return new Intl.NumberFormat("en-IN", {
         style: "currency",
         currency: "INR",
-        maximumFractionDigits: 0
+        maximumFractionDigits: 0,
     }).format(amount);
 }
 
+function formatDateTime(date) {
+    if (!date) return "—";
 
-/* =========================================================
-   COUNT ROWS
-   ========================================================= */
+    return new Intl.DateTimeFormat("en-IN", {
+        dateStyle: "medium",
+        timeStyle: "short",
+    }).format(date);
+}
 
-async function countRows(
-    table,
-    column = null,
-    value = null
-) {
-    try {
-        let query = supabase
-            .from(table)
-            .select("*", {
-                count: "exact",
-                head: true
-            });
+function showToast(message, type = "success") {
+    const toast = $("toast");
 
-        if (
-            column &&
-            value !== null &&
-            value !== undefined
-        ) {
-            query = query.eq(column, value);
-        }
+    if (!toast) return;
 
-        const {
-            count,
-            error
-        } = await query;
+    toast.textContent = message;
+    toast.className = `toast ${type}`;
 
-        if (error) {
-            console.error(
-                `Count error for ${table}:`,
-                error
+    setTimeout(() => {
+        toast.className = "toast";
+    }, 3000);
+}
+
+/* ---------------------------------------------------------
+   Count rows
+--------------------------------------------------------- */
+
+async function countRows(table, filters = []) {
+    let query = supabase
+        .from(table)
+        .select("*", {
+            count: "exact",
+            head: true,
+        });
+
+    for (const filter of filters) {
+        if (filter.operator === "eq") {
+            query = query.eq(
+                filter.column,
+                filter.value
             );
-
-            return 0;
         }
 
-        return Number(count || 0);
+        if (filter.operator === "neq") {
+            query = query.neq(
+                filter.column,
+                filter.value
+            );
+        }
+    }
 
-    } catch (error) {
+    const { count, error } = await query;
 
+    if (error) {
         console.error(
-            `Count exception for ${table}:`,
+            `Count error: ${table}`,
             error
         );
 
         return 0;
     }
-}
 
+    return Number(count || 0);
+}
 
 /* =========================================================
    BASIC COUNTS
    ========================================================= */
 
 async function loadBasicCounts() {
-
-    /* -----------------------------------------------------
-       FARMERS
-       ----------------------------------------------------- */
-
+    /*
+     * FARMERS
+     */
     const farmers = await countRows(
         "farmers"
     );
@@ -101,21 +108,21 @@ async function loadBasicCounts() {
         farmers
     );
 
-
-    /* -----------------------------------------------------
-       CUSTOMERS
-       
-       IMPORTANT:
-       Customer accounts are stored in profiles.
-
-       Actual customer role:
-       customer
-       ----------------------------------------------------- */
-
+    /*
+     * CUSTOMERS
+     *
+     * IMPORTANT:
+     * Your actual customer role is "consumer".
+     */
     const customers = await countRows(
         "profiles",
-        "role",
-        "customer"
+        [
+            {
+                column: "role",
+                operator: "eq",
+                value: "consumer",
+            },
+        ]
     );
 
     setText(
@@ -123,14 +130,12 @@ async function loadBasicCounts() {
         customers
     );
 
-
-    /* -----------------------------------------------------
-       DELIVERY BOYS
-
-       Actual table:
-       delivery_partners
-       ----------------------------------------------------- */
-
+    /*
+     * DELIVERY BOYS
+     *
+     * Actual table:
+     * delivery_partners
+     */
     const deliveryBoys = await countRows(
         "delivery_partners"
     );
@@ -140,11 +145,9 @@ async function loadBasicCounts() {
         deliveryBoys
     );
 
-
-    /* -----------------------------------------------------
-       PRODUCTS
-       ----------------------------------------------------- */
-
+    /*
+     * PRODUCTS
+     */
     const products = await countRows(
         "products"
     );
@@ -155,26 +158,194 @@ async function loadBasicCounts() {
     );
 }
 
-
 /* =========================================================
-   ORDER STATUS
+   ORDERS
    ========================================================= */
 
-function getOrderStatus(order) {
+async function loadOrders() {
+    /*
+     * Fetch all orders.
+     *
+     * We deliberately use "*" because your project may
+     * have order_status rather than status.
+     */
+    const {
+        data,
+        error,
+    } = await supabase
+        .from("orders")
+        .select("*");
 
-    return String(
+    if (error) {
+        console.error(
+            "Orders fetch error:",
+            error
+        );
+
+        setText("totalOrders", 0);
+        setText("pendingOrders", 0);
+        setText("completedOrders", 0);
+
+        return [];
+    }
+
+    const orders = Array.isArray(data)
+        ? data
+        : [];
+
+    setText(
+        "totalOrders",
+        orders.length
+    );
+
+    let pending = 0;
+    let completed = 0;
+
+    for (const order of orders) {
+        const status = String(
+            order.order_status ??
+            order.status ??
+            ""
+        )
+            .trim()
+            .toLowerCase();
+
+        /*
+         * Completed statuses
+         */
+        if (
+            [
+                "completed",
+                "complete",
+                "delivered",
+                "success",
+                "successful",
+                "fulfilled",
+            ].includes(status)
+        ) {
+            completed++;
+            continue;
+        }
+
+        /*
+         * Pending statuses
+         */
+        if (
+            [
+                "pending",
+                "placed",
+                "processing",
+                "confirmed",
+                "accepted",
+                "out_for_delivery",
+                "out for delivery",
+            ].includes(status)
+        ) {
+            pending++;
+        }
+    }
+
+    setText(
+        "pendingOrders",
+        pending
+    );
+
+    setText(
+        "completedOrders",
+        completed
+    );
+
+    return orders;
+}
+
+/* =========================================================
+   EARNINGS
+   ========================================================= */
+
+function getOrderDate(order) {
+    return (
+        order.created_at ||
+        order.order_date ||
+        order.createdAt ||
+        order.updated_at ||
+        null
+    );
+}
+
+function getOrderAmount(order) {
+    /*
+     * Prefer actual platform earning.
+     *
+     * If platform_fee exists, that is the admin earning.
+     *
+     * Otherwise fall back to common amount fields.
+     */
+    const platformFeeFields = [
+        "platform_fee",
+        "platformFee",
+        "admin_fee",
+        "adminFee",
+        "commission",
+        "commission_amount",
+    ];
+
+    for (const field of platformFeeFields) {
+        if (
+            order[field] !== undefined &&
+            order[field] !== null &&
+            order[field] !== ""
+        ) {
+            const amount = Number(
+                order[field]
+            );
+
+            if (Number.isFinite(amount)) {
+                return amount;
+            }
+        }
+    }
+
+    /*
+     * Fallback.
+     *
+     * This is used only when no platform fee field
+     * exists in the order row.
+     */
+    const amountFields = [
+        "total_amount",
+        "total",
+        "grand_total",
+        "amount",
+        "order_total",
+    ];
+
+    for (const field of amountFields) {
+        if (
+            order[field] !== undefined &&
+            order[field] !== null &&
+            order[field] !== ""
+        ) {
+            const amount = Number(
+                order[field]
+            );
+
+            if (Number.isFinite(amount)) {
+                return amount;
+            }
+        }
+    }
+
+    return 0;
+}
+
+function isCompletedOrder(order) {
+    const status = String(
         order.order_status ??
         order.status ??
         ""
     )
         .trim()
         .toLowerCase();
-}
-
-
-function isCompletedOrder(order) {
-
-    const status = getOrderStatus(order);
 
     return [
         "completed",
@@ -182,263 +353,19 @@ function isCompletedOrder(order) {
         "delivered",
         "success",
         "successful",
-        "fulfilled"
+        "fulfilled",
     ].includes(status);
 }
-
-
-function isPendingOrder(order) {
-
-    const status = getOrderStatus(order);
-
-    return [
-        "pending",
-        "placed",
-        "processing",
-        "confirmed",
-        "accepted",
-        "assigned",
-        "out_for_delivery",
-        "out for delivery"
-    ].includes(status);
-}
-
-
-/* =========================================================
-   ORDER DATE
-   ========================================================= */
-
-function getOrderDate(order) {
-
-    return (
-        order.created_at ??
-        order.order_date ??
-        order.createdAt ??
-        order.updated_at ??
-        null
-    );
-}
-
-
-/* =========================================================
-   ORDER AMOUNT
-   ========================================================= */
-
-function getOrderAmount(order) {
-
-    /*
-     * If the database has a specific platform/admin
-     * earning field, use that first.
-     */
-
-    const platformFeeFields = [
-        "platform_fee",
-        "platformFee",
-        "admin_fee",
-        "adminFee",
-        "commission",
-        "commission_amount"
-    ];
-
-
-    for (const field of platformFeeFields) {
-
-        const value = order[field];
-
-        if (
-            value !== undefined &&
-            value !== null &&
-            value !== ""
-        ) {
-
-            const amount = Number(value);
-
-            if (Number.isFinite(amount)) {
-                return amount;
-            }
-        }
-    }
-
-
-    /*
-     * Otherwise use the actual order total.
-     */
-
-    const amountFields = [
-        "total_amount",
-        "total",
-        "grand_total",
-        "order_total",
-        "amount",
-        "price"
-    ];
-
-
-    for (const field of amountFields) {
-
-        const value = order[field];
-
-        if (
-            value !== undefined &&
-            value !== null &&
-            value !== ""
-        ) {
-
-            const amount = Number(value);
-
-            if (Number.isFinite(amount)) {
-                return amount;
-            }
-        }
-    }
-
-
-    return 0;
-}
-
-
-/* =========================================================
-   GET ORDERS
-   ========================================================= */
-
-async function loadOrders() {
-
-    try {
-
-        const {
-            data,
-            error
-        } = await supabase
-            .from("orders")
-            .select("*");
-
-
-        if (error) {
-
-            console.error(
-                "Orders fetch error:",
-                error
-            );
-
-            setText(
-                "totalOrders",
-                0
-            );
-
-            setText(
-                "pendingOrders",
-                0
-            );
-
-            setText(
-                "completedOrders",
-                0
-            );
-
-            return [];
-        }
-
-
-        const orders = Array.isArray(data)
-            ? data
-            : [];
-
-
-        /* -------------------------------------------------
-           TOTAL ORDERS
-           ------------------------------------------------- */
-
-        setText(
-            "totalOrders",
-            orders.length
-        );
-
-
-        let pending = 0;
-        let completed = 0;
-
-
-        /* -------------------------------------------------
-           STATUS COUNTS
-           ------------------------------------------------- */
-
-        for (const order of orders) {
-
-            if (isCompletedOrder(order)) {
-
-                completed++;
-
-                continue;
-            }
-
-
-            if (isPendingOrder(order)) {
-
-                pending++;
-            }
-        }
-
-
-        setText(
-            "pendingOrders",
-            pending
-        );
-
-
-        setText(
-            "completedOrders",
-            completed
-        );
-
-
-        return orders;
-
-    } catch (error) {
-
-        console.error(
-            "Orders loading exception:",
-            error
-        );
-
-        setText(
-            "totalOrders",
-            0
-        );
-
-        setText(
-            "pendingOrders",
-            0
-        );
-
-        setText(
-            "completedOrders",
-            0
-        );
-
-        return [];
-    }
-}
-
-
-/* =========================================================
-   DATE RANGE
-   ========================================================= */
 
 function getDateRange(type) {
-
     const now = new Date();
 
     const start = new Date(now);
 
-
-    /* -----------------------------------------------------
-       CURRENT WEEK
-
-       Monday = first day
-       ----------------------------------------------------- */
-
     if (type === "week") {
-
+        /*
+         * Monday = beginning of week
+         */
         const day = start.getDay();
 
         const difference =
@@ -446,87 +373,72 @@ function getDateRange(type) {
                 ? 6
                 : day - 1;
 
-
         start.setDate(
             start.getDate() - difference
         );
+
+        start.setHours(
+            0,
+            0,
+            0,
+            0
+        );
     }
 
-
-    /* -----------------------------------------------------
-       CURRENT MONTH
-       ----------------------------------------------------- */
-
-    else if (type === "month") {
-
+    if (type === "month") {
         start.setDate(1);
+
+        start.setHours(
+            0,
+            0,
+            0,
+            0
+        );
     }
 
-
-    /* -----------------------------------------------------
-       CURRENT YEAR
-       ----------------------------------------------------- */
-
-    else if (type === "year") {
-
+    if (type === "year") {
         start.setMonth(0);
         start.setDate(1);
+
+        start.setHours(
+            0,
+            0,
+            0,
+            0
+        );
     }
 
-
-    start.setHours(
-        0,
-        0,
-        0,
-        0
-    );
-
-
-    return start;
+    return {
+        start,
+        end: now,
+    };
 }
-
-
-/* =========================================================
-   CALCULATE EARNINGS
-   ========================================================= */
 
 function calculateEarnings(
     orders,
-    period
+    type
 ) {
-
-    const start = getDateRange(
-        period
-    );
-
+    const {
+        start,
+        end,
+    } = getDateRange(type);
 
     let total = 0;
 
-
     for (const order of orders) {
-
-        /*
-         * Earnings are counted only for
-         * completed/delivered orders.
-         */
-
         if (!isCompletedOrder(order)) {
             continue;
         }
 
-
-        const dateValue =
+        const rawDate =
             getOrderDate(order);
 
-
-        if (!dateValue) {
+        if (!rawDate) {
             continue;
         }
 
-
         const orderDate =
-            new Date(dateValue);
-
+            new Date(rawDate);
 
         if (
             Number.isNaN(
@@ -536,34 +448,25 @@ function calculateEarnings(
             continue;
         }
 
-
-        if (orderDate < start) {
-            continue;
+        if (
+            orderDate >= start &&
+            orderDate <= end
+        ) {
+            total += getOrderAmount(
+                order
+            );
         }
-
-
-        total += getOrderAmount(
-            order
-        );
     }
-
 
     return total;
 }
 
-
-/* =========================================================
-   LOAD EARNINGS
-   ========================================================= */
-
-function loadEarnings(orders) {
-
+async function loadEarnings(orders) {
     const weekly =
         calculateEarnings(
             orders,
             "week"
         );
-
 
     const monthly =
         calculateEarnings(
@@ -571,132 +474,114 @@ function loadEarnings(orders) {
             "month"
         );
 
-
     const yearly =
         calculateEarnings(
             orders,
             "year"
         );
 
-
     setText(
         "weeklyEarnings",
-        money(weekly)
+        formatCurrency(weekly)
     );
-
 
     setText(
         "monthlyEarnings",
-        money(monthly)
+        formatCurrency(monthly)
     );
-
 
     setText(
         "yearlyEarnings",
-        money(yearly)
+        formatCurrency(yearly)
     );
 }
 
-
 /* =========================================================
-   MAIN DASHBOARD
+   LAST UPDATED
    ========================================================= */
 
-async function loadDashboard() {
+function updateLastUpdated() {
+    setText(
+        "lastUpdated",
+        formatDateTime(
+            new Date()
+        )
+    );
+}
 
+/* =========================================================
+   LOAD DASHBOARD
+   ========================================================= */
+
+export async function loadDashboard() {
     try {
-
         /*
-         * Load basic counts and orders
-         * together.
+         * Load counts and orders independently.
+         *
+         * One failed query should NOT stop the
+         * entire dashboard from rendering.
          */
+        await loadBasicCounts();
 
-        const [
-            _basicCounts,
-            orders
-        ] = await Promise.all([
-            loadBasicCounts(),
-            loadOrders()
-        ]);
+        const orders =
+            await loadOrders();
 
-
-        /* -------------------------------------------------
-           EARNINGS
-           ------------------------------------------------- */
-
-        loadEarnings(
+        await loadEarnings(
             orders
         );
 
-
-        /* -------------------------------------------------
-           LAST UPDATED
-           ------------------------------------------------- */
-
-        setText(
-            "lastUpdated",
-            `Updated ${new Date().toLocaleString(
-                "en-IN",
-                {
-                    dateStyle: "medium",
-                    timeStyle: "short"
-                }
-            )}`
-        );
-
+        updateLastUpdated();
 
     } catch (error) {
-
         console.error(
             "Dashboard loading error:",
             error
         );
 
         showToast(
-            "Could not load dashboard data."
+            "Some dashboard data could not be loaded.",
+            "error"
         );
     }
 }
-
 
 /* =========================================================
    REFRESH BUTTON
    ========================================================= */
 
-document
-    .getElementById(
-        "refreshDashboardBtn"
-    )
-    ?.addEventListener(
-        "click",
-        async () => {
+document.addEventListener(
+    "DOMContentLoaded",
+    () => {
+        const refreshButton =
+            $("refreshDashboardBtn");
 
-            await loadDashboard();
+        if (refreshButton) {
+            refreshButton.addEventListener(
+                "click",
+                async () => {
+                    refreshButton.disabled = true;
+
+                    const originalText =
+                        refreshButton.textContent;
+
+                    refreshButton.textContent =
+                        "↻ Refreshing...";
+
+                    await loadDashboard();
+
+                    refreshButton.disabled =
+                        false;
+
+                    refreshButton.textContent =
+                        originalText ||
+                        "↻ Refresh";
+                }
+            );
         }
-    );
 
-
-/* =========================================================
-   ADMIN READY
-   ========================================================= */
-
-window.addEventListener(
-    "admin-ready",
-    async () => {
-
-        await loadDashboard();
-    }
-);
-
-
-/* =========================================================
-   DASHBOARD REQUESTED
-   ========================================================= */
-
-window.addEventListener(
-    "dashboard-requested",
-    async () => {
-
-        await loadDashboard();
+        /*
+         * Initial dashboard load
+         */
+        loadDashboard();
     }
 );
