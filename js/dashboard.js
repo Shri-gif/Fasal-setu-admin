@@ -109,13 +109,13 @@ async function loadBasicCounts() {
        Customer accounts are stored in profiles.
 
        Actual customer role:
-       consumer
+       customer
        ----------------------------------------------------- */
 
     const customers = await countRows(
         "profiles",
         "role",
-        "consumer"
+        "customer"
     );
 
     setText(
